@@ -9,7 +9,6 @@ from data_service import (
     calculate_risk_metrics,
     calculate_concentration,
     compare_target_allocation,
-    TARGET_ALLOCATION_GEO,
     load_etf_allocations,
     get_sector,
     get_country,
@@ -20,23 +19,28 @@ from data_service import (
     get_sp500_shiller_pe,
     get_sp500_pe_metrics
 )
+from config import (
+    TARGET_ALLOCATION_GEO,
+    COUNTRY_NORMALIZATION,
+    PERFORMANCE_PERIODS,
+    DEFAULT_BENCHMARK,
+    RISK_FREE_RATE
+)
 
 
 def render(df_p, df_geo, df_consolidated):
-    """Affiche l'historique mensuel du portefeuille."""
+    """Affiche le portefeuille (sans onglet Historique/Projection)."""
     
     if df_p.empty:
         st.info("Aucune donnée de portefeuille")
         return
     
     # Sous-onglets pour la page Portefeuille
-    subtab1, subtab2, subtab3, subtab4, subtab5, subtab6 = st.tabs([
+    subtab1, subtab3, subtab4, subtab5 = st.tabs([
         "📊 Répartition",
-        "📈 Performance",
         "🎯 Concentration",
         "📋 Positions",
-        "🔍 Analyse",
-        "💰 Projection"
+        "🔍 Analyse"
     ])
     
     # Sous-onglet 1: Répartition
@@ -64,14 +68,7 @@ def render(df_p, df_geo, df_consolidated):
             if not df_geo.empty:
                 # Normaliser les noms de pays avant le groupement
                 df_geo_copy = df_geo.copy()
-                country_mapping = {
-                    'United States': 'USA',
-                    'United States of America': 'USA',
-                    'US': 'USA',
-                    'United Kingdom': 'UK',
-                    'Great Britain': 'UK'
-                }
-                df_geo_copy['Pays'] = df_geo_copy['Pays'].replace(country_mapping)
+                df_geo_copy['Pays'] = df_geo_copy['Pays'].replace(COUNTRY_NORMALIZATION)
                 
                 df_geo_grouped = df_geo_copy.groupby('Pays')['Valeur_Finale'].sum().reset_index()
                 df_geo_grouped['Percentage'] = (df_geo_grouped['Valeur_Finale'] /
@@ -96,107 +93,7 @@ def render(df_p, df_geo, df_consolidated):
             else:
                 st.warning("Pas de données géographiques disponibles")
     
-    # Sous-onglet 2: Performance et Risque
-    with subtab2:
-        if not df_consolidated.empty:
-            st.subheader("Performance historique du portefeuille")
-            
-            # Paramètres dans la sidebar
-            st.sidebar.markdown("### 📈 Performance")
-            nb_years = st.sidebar.selectbox(
-                "Période d'analyse",
-                options=[1, 3, 5],
-                index=1,
-                help="Nombre d'années en arrière pour la performance"
-            )
-            benchmark_symbol = st.sidebar.text_input(
-                "Ticker benchmark",
-                value="VFV.TO",
-                help="Ex: VFV.TO, ^GSPTSE"
-            )
-            
-            # Taux sans risque pour le calcul du Sharpe ratio
-            risk_free_rate = 0.02  # 2%
-            
-            hist_df = build_portfolio_history(
-                df_consolidated=df_consolidated,
-                benchmark_symbol=benchmark_symbol,
-                start_years_ago=nb_years
-            )
-            
-            if not hist_df.empty:
-                fig_perf = px.line(
-                    hist_df,
-                    x=hist_df.index,
-                    y=hist_df.columns,
-                    labels={"value": "Valeur normalisée (base 100)", "Date": "Date"},
-                    title=f"Évolution du portefeuille vs benchmark ({nb_years} ans)"
-                )
-                st.plotly_chart(fig_perf, width='stretch')
-                
-                last_vals = hist_df.iloc[-1]
-                col_stat1, col_stat2 = st.columns(2)
-                with col_stat1:
-                    st.metric(
-                        "Perf cumulée Portefeuille",
-                        f"{last_vals['Portefeuille'] - 100:.2f} %"
-                    )
-                if hist_df.shape[1] > 1:
-                    bmk_col = [c for c in hist_df.columns if c != 'Portefeuille'][0]
-                    with col_stat2:
-                        st.metric(
-                            f"Perf cumulée {bmk_col}",
-                            f"{last_vals[bmk_col] - 100:.2f} %"
-                        )
-                
-                st.markdown("---")
-                st.subheader("Indicateurs de risque et de rendement")
-                
-                metrics = calculate_risk_metrics(hist_df, risk_free_rate)
-                
-                if metrics:
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric(
-                            "Rendement annualisé",
-                            f"{metrics['annual_return']:.2f} %",
-                            help="Rendement géométrique annualisé"
-                        )
-                    with col2:
-                        st.metric(
-                            "Volatilité annualisée",
-                            f"{metrics['volatility']:.2f} %",
-                            help="Écart-type des rendements journaliers × √252"
-                        )
-                    with col3:
-                        st.metric(
-                            "Sharpe ratio",
-                            f"{metrics['sharpe_ratio']:.2f}",
-                            help="(Rendement - taux sans risque) / volatilité"
-                        )
-                    with col4:
-                        st.metric(
-                            "Max drawdown",
-                            f"{metrics['max_drawdown']:.2f} %",
-                            help="Plus grand recul par rapport au pic précédent"
-                        )
-                    
-                    # Graphique du drawdown
-                    cum_max = hist_df['Portefeuille'].expanding().max()
-                    drawdown = (hist_df['Portefeuille'] - cum_max) / cum_max * 100
-                    fig_dd = px.area(
-                        x=drawdown.index,
-                        y=drawdown.values,
-                        labels={"x": "Date", "y": "Drawdown (%)"},
-                        title="Drawdown du portefeuille"
-                    )
-                    fig_dd.update_traces(line_color="red", fillcolor="rgba(255,0,0,0.3)")
-                    st.plotly_chart(fig_dd, width='stretch')
-            else:
-                st.info("Historique de prix insuffisant pour calculer la performance.")
-        else:
-            st.info("Aucune donnée de portefeuille pour l'analyse de performance")
+    # Onglet Performance supprimé
     
     # Sous-onglet 3: Concentration & Allocation
     with subtab3:
@@ -277,6 +174,10 @@ def render(df_p, df_geo, df_consolidated):
             usd_to_cad = get_usd_to_cad_rate()
             etf_allocations = load_etf_allocations()
             
+            symboles_prix_manquants = []
+            secteurs_manquants = []
+            pays_manquants = []
+            
             with st.spinner("Récupération des ratios de valorisation..."):
                 for _, row in df_consolidated.iterrows():
                     symbol = str(row['Symbole']).upper().strip()
@@ -294,7 +195,8 @@ def render(df_p, df_geo, df_consolidated):
                         else:
                             prix_display = f"{current_price:.2f} {currency}"
                     else:
-                        prix_display = '-'
+                        prix_display = '⚠️ Non trouvé'
+                        symboles_prix_manquants.append(f"{symbol} ({actif_name})")
                     
                     if symbol in etf_allocations:
                         etf_info = etf_allocations[symbol]
@@ -309,19 +211,22 @@ def render(df_p, df_geo, df_consolidated):
                             'Quantité': int(row['Quantité']),
                             'Prix': prix_display,
                             'Secteur': 'ETF',
-                            'Pays': pays_etf if pays_etf else '-',
+                            'Pays': pays_etf if pays_etf else '',
                             'Valeur (CAD)': valeur_etf,
                             'Poids (%)': round(valeur_etf / total_v * 100, 2),
-                            'P/E': '-',
-                            'Forward P/E': '-'
+                            'P/E': None,
+                            'Forward P/E': None
                         })
                     else:
                         sector = get_sector(symbol) if symbol else None
                         if not sector:
-                            sector = "Catégorie Inconnue"
+                            sector = "⚠️ Catégorie Inconnue"
+                            secteurs_manquants.append(f"{symbol} ({actif_name})")
                         
                         # Récupérer le pays pour l'action
                         pays_action = get_country(symbol) if symbol else None
+                        if not pays_action:
+                            pays_manquants.append(f"{symbol} ({actif_name})")
                         
                         valuation = get_valuation_metrics(symbol)
                         
@@ -331,11 +236,11 @@ def render(df_p, df_geo, df_consolidated):
                             'Quantité': int(row['Quantité']),
                             'Prix': prix_display,
                             'Secteur': sector,
-                            'Pays': pays_action if pays_action else '-',
+                            'Pays': pays_action if pays_action else '⚠️ Non défini',
                             'Valeur (CAD)': row['Valeur_Finale'],
                             'Poids (%)': round(row['Valeur_Finale'] / total_v * 100, 2),
-                            'P/E': valuation['pe'] if valuation['pe'] else '-',
-                            'Forward P/E': valuation['forward_pe'] if valuation['forward_pe'] else '-'
+                            'P/E': valuation['pe'] if valuation['pe'] else None,
+                            'Forward P/E': valuation['forward_pe'] if valuation['forward_pe'] else None
                         })
             
             df_display = pd.DataFrame(df_tableau).sort_values('Valeur (CAD)', ascending=False)
@@ -343,6 +248,22 @@ def render(df_p, df_geo, df_consolidated):
             df_display = df_display[df_display['Valeur (CAD)'] > 0].reset_index(drop=True)
             
             st.dataframe(df_display, width='stretch', hide_index=True)
+            
+            # Afficher les avertissements pour les données manquantes
+            if symboles_prix_manquants:
+                with st.expander(f"⚠️ {len(symboles_prix_manquants)} symbole(s) avec prix manquant", expanded=False):
+                    for symbole in symboles_prix_manquants:
+                        st.caption(f"• {symbole}")
+            
+            if secteurs_manquants:
+                with st.expander(f"ℹ️ {len(secteurs_manquants)} symbole(s) avec secteur non défini", expanded=False):
+                    for symbole in secteurs_manquants:
+                        st.caption(f"• {symbole}")
+            
+            if pays_manquants:
+                with st.expander(f"ℹ️ {len(pays_manquants)} symbole(s) avec pays non défini", expanded=False):
+                    for symbole in pays_manquants:
+                        st.caption(f"• {symbole}")
             
             # Bouton d'export CSV
             csv = df_display.to_csv(index=False).encode('utf-8')
@@ -802,11 +723,4 @@ def render(df_p, df_geo, df_consolidated):
         elif analyze_button and not ticker_input:
             st.warning("⚠️ Veuillez entrer un symbole boursier")
     
-    # Sous-onglet 6: Projection
-    with subtab6:
-        from . import projection
-        total_value = df_p['Valeur_Finale'].sum()
-        projection.render(total_value)
-        
-        # Espace vertical en bas de page
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
+    # Onglet Projection supprimé

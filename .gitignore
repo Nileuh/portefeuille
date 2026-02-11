@@ -1,15 +1,12 @@
 # Ignore all contents of the data folder except the folder itself
-/data/*
-!/data/
+/export-wealthsimple/*.csv
+!/export-wealthsimple/
 
 # Ignore Python cache
 __pycache__/
 
 # Ignore Jupyter notebook checkpoints
 .ipynb_checkpoints/
-
-# Ignore CSV files in root
-*.csv
 
 # Ignore Streamlit temporary files
 .streamlit/

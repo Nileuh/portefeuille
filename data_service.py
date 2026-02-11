@@ -7,11 +7,20 @@ import datetime as dt
 from datetime import datetime
 import numpy as np
 
-# === CONFIGURATION ===
-HISTORY_FILE = 'portfolio_history.csv'
-SYMBOLES_DEVISES_FILE = 'symboles_devises.csv'
-ETF_ALLOCATIONS_FILE = 'etf_allocations.csv'
-ETF_ALLOCATIONS_GEO_FILE = 'etf_allocations_geo.csv'
+# Importer les configurations centralisées
+from config import (
+    HISTORY_FILE,
+    SYMBOLES_DEVISES_FILE,
+    ETF_ALLOCATIONS_FILE,
+    ETF_ALLOCATIONS_GEO_FILE,
+    ETF_CANADIENS,
+    TARGET_ALLOCATION_GEO,
+    ZONE_MAPPING,
+    COUNTRY_NORMALIZATION,
+    LRU_CACHE_MAXSIZE,
+    CACHE_TTL_SECONDS,
+    RISK_FREE_RATE
+)
 
 # Charger le mapping des devises
 _symboles_devises_cache = None
@@ -250,14 +259,6 @@ def auto_complete_missing_countries():
     
     return missing_count, updated_count
 
-# === TARGET ALLOCATION ===
-TARGET_ALLOCATION_GEO = {
-    'USA': 55.0,
-    'Canada': 20.0,
-    'Marchés Développés (ex-US)': 15.0,
-    'Marchés Émergents': 10.0
-}
-
 
 # ============================================
 # DONNÉES EN CACHE (Session State)
@@ -279,7 +280,7 @@ def get_cached_portfolio_data():
 # FONCTIONS UTILITAIRES
 # ============================================
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_usd_to_cad_rate() -> float:
     """Récupère le taux USD/CAD en temps réel."""
     try:
@@ -293,7 +294,7 @@ def get_usd_to_cad_rate() -> float:
     return None
 
 
-@lru_cache(maxsize=500)
+@lru_cache(maxsize=LRU_CACHE_MAXSIZE)
 def get_sector(symbol: str) -> str:
     """Récupère le secteur d'une action/ETF."""
     symbol_upper = symbol.upper().strip()
@@ -344,7 +345,7 @@ def get_sector(symbol: str) -> str:
         return None
 
 
-@lru_cache(maxsize=500)
+@lru_cache(maxsize=LRU_CACHE_MAXSIZE)
 def get_valuation_metrics(symbol: str):
     """Récupère P/E et Forward P/E pour une action."""
     try:
@@ -360,7 +361,7 @@ def get_valuation_metrics(symbol: str):
         return {'pe': None, 'forward_pe': None}
 
 
-@lru_cache(maxsize=500)
+@lru_cache(maxsize=LRU_CACHE_MAXSIZE)
 def get_current_price(symbol: str, actif_name: str = None):
     """Récupère le prix actuel d'un symbole via yfinance.
     
@@ -379,9 +380,8 @@ def get_current_price(symbol: str, actif_name: str = None):
         # Si c'est un ETF canadien connu sans suffixe, ajouter .TO
         # Charger les ETF connus
         etf_allocations = load_etf_allocations()
-        etf_canadiens = ['VFV', 'ZCN', 'ZEM', 'ZEA', 'XIC', 'VCN', 'XQQ', 'ZNQ', 'XEQT', 'VEQT', 'VBAL', 'ZBAL', 'ZSP']
         
-        if symbol_upper in etf_allocations or symbol_upper in etf_canadiens:
+        if symbol_upper in etf_allocations or symbol_upper in ETF_CANADIENS:
             if '.' not in symbol_upper:  # Pas de suffixe de bourse
                 symbol_upper = symbol_upper + '.TO'
         
@@ -401,7 +401,7 @@ def get_current_price(symbol: str, actif_name: str = None):
         return None
 
 
-@lru_cache(maxsize=500)
+@lru_cache(maxsize=LRU_CACHE_MAXSIZE)
 def get_country(symbol: str) -> str:
     """Récupère le pays d'une action."""
     symbol_upper = symbol.upper().strip()
@@ -419,9 +419,8 @@ def get_country(symbol: str) -> str:
         # Ajouter .TO si c'est probablement un ETF canadien
         symbol_to_query = symbol_upper
         etf_allocations = load_etf_allocations()
-        etf_canadiens = ['VFV', 'ZCN', 'ZEM', 'ZEA', 'XIC', 'VCN', 'XQQ', 'ZNQ', 'XEQT', 'VEQT', 'VBAL', 'ZBAL', 'ZSP']
         
-        if (symbol_upper in etf_allocations or symbol_upper in etf_canadiens) and '.' not in symbol_upper:
+        if (symbol_upper in etf_allocations or symbol_upper in ETF_CANADIENS) and '.' not in symbol_upper:
             symbol_to_query = symbol_upper + '.TO'
         
         ticker = yf.Ticker(symbol_to_query)
@@ -457,8 +456,7 @@ def get_currency_for_symbol(symbol: str, actif_name: str = None):
         return symboles_data['devise'][symbol_upper]
     
     # Si c'est un ETF canadien connu, c'est en CAD
-    etf_canadiens = ['VFV', 'ZCN', 'ZEM', 'ZEA', 'XIC', 'VCN', 'XQQ', 'ZNQ', 'XEQT', 'VEQT', 'VBAL', 'ZBAL', 'ZSP']
-    if symbol_upper in etf_canadiens:
+    if symbol_upper in ETF_CANADIENS:
         return 'CAD'
     
     # Sinon, utiliser yfinance
@@ -484,7 +482,7 @@ def get_currency_for_symbol(symbol: str, actif_name: str = None):
 # ============================================
 
 def load_portfolio(use_realtime_prices=True):
-    """Charge les données du portefeuille depuis le dossier /data.
+    """Charge les données du portefeuille depuis le dossier /export-wealthsimple.
     
     Args:
         use_realtime_prices: Si True, utilise les prix actuels de yfinance.
@@ -499,7 +497,7 @@ def load_portfolio(use_realtime_prices=True):
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
     
     base_path = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_path, "data")
+    data_dir = os.path.join(base_path, "export-wealthsimple")
     
     if not os.path.exists(data_dir):
         st.error(f"Dossier introuvable : {data_dir}")
@@ -583,6 +581,7 @@ def load_portfolio(use_realtime_prices=True):
     })
     
     # Recalculer les valeurs avec prix temps réel si demandé
+    symboles_non_trouves = []
     if use_realtime_prices:
         with st.spinner("Récupération des prix en temps réel..."):
             for idx, row in df_portfolio.iterrows():
@@ -604,12 +603,26 @@ def load_portfolio(use_realtime_prices=True):
                         valeur = valeur * usd_to_cad_rate
                     
                     df_portfolio.at[idx, 'Valeur_Finale'] = valeur
+                else:
+                    # Prix non trouvé, ajouter à la liste
+                    symboles_non_trouves.append({
+                        'Symbole': symbol,
+                        'Actif': actif_name
+                    })
+        
+        # Afficher les avertissements pour les symboles non trouvés
+        if symboles_non_trouves:
+            st.warning(f"⚠️ Prix non trouvé pour {len(symboles_non_trouves)} symbole(s) :")
+            for item in symboles_non_trouves:
+                st.caption(f"  • {item['Symbole']} ({item['Actif']}) - Utilisation des valeurs du CSV")
     
     df_consolidated = df_portfolio.copy()
     
     with st.spinner("Traitement des données..."):
         expanded_data = []
         geo_data = []
+        secteurs_non_trouves = []
+        pays_non_trouves = []
         
         etf_allocations = load_etf_allocations()
         etf_allocations_geo = load_etf_allocations_geo()
@@ -640,10 +653,20 @@ def load_portfolio(use_realtime_prices=True):
                             'Allocation': f"{allocation_geo:.2f}%",
                             'Valeur_Finale': valeur_geo
                         })
+                else:
+                    # ETF sans allocation géographique
+                    pays_non_trouves.append({
+                        'Symbole': symbol,
+                        'Actif': row['Actif']
+                    })
             else:
                 sector = get_sector(symbol) if symbol else None
                 if not sector:
                     sector = "Catégorie Inconnue"
+                    secteurs_non_trouves.append({
+                        'Symbole': symbol,
+                        'Actif': row['Actif']
+                    })
                 
                 expanded_data.append({
                     'Actif': row['Actif'],
@@ -662,9 +685,27 @@ def load_portfolio(use_realtime_prices=True):
                         'Allocation': '100%',
                         'Valeur_Finale': row['Valeur_Finale']
                     })
+                else:
+                    # Pays non trouvé pour cette action
+                    if {'Symbole': symbol, 'Actif': row['Actif']} not in pays_non_trouves:
+                        pays_non_trouves.append({
+                            'Symbole': symbol,
+                            'Actif': row['Actif']
+                        })
         
         df_portfolio = pd.DataFrame(expanded_data)
         df_geo = pd.DataFrame(geo_data)
+        
+        # Afficher les avertissements pour les données manquantes
+        if secteurs_non_trouves:
+            st.info(f"ℹ️ Secteur non défini pour {len(secteurs_non_trouves)} symbole(s) :")
+            for item in secteurs_non_trouves:
+                st.caption(f"  • {item['Symbole']} ({item['Actif']})")
+        
+        if pays_non_trouves:
+            st.info(f"ℹ️ Pays non défini pour {len(pays_non_trouves)} symbole(s) :")
+            for item in pays_non_trouves:
+                st.caption(f"  • {item['Symbole']} ({item['Actif']})")
     
     return df_portfolio, df_geo, df_consolidated
 
@@ -673,8 +714,9 @@ def load_portfolio(use_realtime_prices=True):
 # PERFORMANCE HISTORIQUE
 # ============================================
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def get_price_history(symbols, start_date, end_date):
+    print(f"[get_price_history] symbols={symbols}, start_date={start_date}, end_date={end_date}")
     """Récupère les historiques de prix."""
     data = yf.download(
         tickers=list(symbols),
@@ -688,7 +730,7 @@ def get_price_history(symbols, start_date, end_date):
     return data
 
 
-def build_portfolio_history(df_consolidated, benchmark_symbol="VFV.TO", start_years_ago=3):
+def build_portfolio_history(df_consolidated, benchmark_symbol="VFV.TO", start_years_ago=1):
     """Construit l'historique du portefeuille."""
     if df_consolidated.empty:
         return pd.DataFrame()
@@ -728,7 +770,7 @@ def build_portfolio_history(df_consolidated, benchmark_symbol="VFV.TO", start_ye
     return hist_df
 
 
-def calculate_risk_metrics(hist_df, risk_free_rate=0.02):
+def calculate_risk_metrics(hist_df, risk_free_rate=RISK_FREE_RATE):
     """Calcule les métriques de risque/rendement."""
     if hist_df.empty or 'Portefeuille' not in hist_df.columns:
         return {}
@@ -784,24 +826,9 @@ def compare_target_allocation(df_geo, target_alloc):
     total = df_geo['Valeur_Finale'].sum()
     actual = df_geo.groupby('Pays')['Valeur_Finale'].sum() / total * 100
     
-    zone_mapping = {
-        'USA': 'USA',
-        'Canada': 'Canada',
-        'China': 'Marchés Émergents', 'Taiwan': 'Marchés Émergents', 'India': 'Marchés Émergents',
-        'South Korea': 'Marchés Émergents', 'Brazil': 'Marchés Émergents', 'South Africa': 'Marchés Émergents',
-        'Saudi Arabia': 'Marchés Émergents', 'Mexico': 'Marchés Émergents', 'Indonesia': 'Marchés Émergents',
-        'United Arab Emirates': 'Marchés Émergents', 'Poland': 'Marchés Émergents',
-        'Japan': 'Marchés Développés (ex-US)', 'United Kingdom': 'Marchés Développés (ex-US)',
-        'Switzerland': 'Marchés Développés (ex-US)', 'Germany': 'Marchés Développés (ex-US)',
-        'France': 'Marchés Développés (ex-US)', 'Netherlands': 'Marchés Développés (ex-US)',
-        'Australia': 'Marchés Développés (ex-US)', 'Spain': 'Marchés Développés (ex-US)',
-        'Sweden': 'Marchés Développés (ex-US)', 'Italy': 'Marchés Développés (ex-US)',
-        'Denmark': 'Marchés Développés (ex-US)', 'Other': 'Marchés Développés (ex-US)'
-    }
-    
     actual_grouped = {}
     for pays, pct in actual.items():
-        zone = zone_mapping.get(pays, 'Autre')
+        zone = ZONE_MAPPING.get(pays, 'Autre')
         actual_grouped[zone] = actual_grouped.get(zone, 0) + pct
     
     comparison = []

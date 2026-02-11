@@ -158,4 +158,4 @@ def render(total_portfolio_value):
     
     # On affiche avec la config locale fr
     # L'utilisation de hovermode='x unified' affichera l'année en haut de l'étiquette
-    st.plotly_chart(fig, use_container_width=True, config={'locale': 'fr'})
+    st.plotly_chart(fig, width='stretch', config={'locale': 'fr'})

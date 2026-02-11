@@ -80,4 +80,4 @@ if not df_p.empty:
     portefeuille.render(df_p, df_geo, df_consolidated)
 
 else:
-    st.error("❌ Aucun portefeuille détecté. Assurez-vous d'avoir un dossier '/data' avec vos fichiers CSV.")
+    st.error("❌ Aucun portefeuille détecté. Assurez-vous d'avoir un dossier '/export-wealthsimple' avec vos fichiers CSV.")
