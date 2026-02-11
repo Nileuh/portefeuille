@@ -1,3 +1,9 @@
+# install 
+python -m pip install streamlit pandas yfinance plotly
+
+# execute
+streamlit run app.py
+
 # 📂 Comment remplir les fichiers CSV
 
 L'application utilise trois fichiers CSV principaux pour la configuration et l'analyse du portefeuille. Voici comment les remplir :
@@ -38,13 +44,6 @@ L'application utilise trois fichiers CSV principaux pour la configuration et l'a
 
 **Remarque :**
 Pour chaque nouvel ETF ou titre, pensez à compléter ces fichiers pour garantir une analyse correcte et éviter les avertissements dans l'application.
-
-# install 
-python -m pip install streamlit pandas yfinance plotly
-
-# execute
-streamlit run app.py
-
 
 # Guide de Configuration
 
